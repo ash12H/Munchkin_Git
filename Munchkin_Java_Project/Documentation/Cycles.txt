@@ -1,0 +1,82 @@
+Serveur :
+
+lancement du programme Serveur
+	
+	_PHASE SALON
+	Ouverture du salon de connexion = Mise en mode attente et test les connexions entrentes
+	Le serveur dispose d'un terminal et de certaines commandes permettant d'obtenir son adresse IP, les ports utilisés ...
+	Chaque client fera une demande de connexion, le serveur les acceptera (entre 3 à 8 connexions)
+	Lorsque tous les clients qui sont connectés ont envoyé le signal (READY) => Le serveur sors de la boucle Phase Salon
+	
+	_PHASE INITIALISATION
+	Le serveur crée toutes les données utiles au jeu = joueurs, plateau, piles, defausses, fichier historique /!\ A DEVELOPPER /!\
+	Il envoi les données utiles aux joueurs (leur main, les cartes affichées sur le plateau comme la taille des piles de cartes -> defausse et pioche <-
+	le nombre de cartes possédées par les adversaires, le nombre d'adversaires etc...)
+	Serveur utilise un RNG pour déterminer l'ordre des joueurs.
+	Il envoi ensuite leur numéro à chaque joueur (NOMBRE_JOUEURS = x) puis apres une petite annonce (développé sur la partie client) il annonce le début de la partie (DEBUT).
+	Lorsque tout le monde est prêt (PRET) il sort de la phase initialisation et entre dans la phase principale (corps du jeu)
+
+	_PHASE PRINCIPALE
+	Ici le serveur va permettre aux joueurs de jouer leurs phases tour l'un après l'autre.
+	Il ne sortira de cette phase que sous certaines conditions : un joueur arrive niveau 10, une connexion est perdu, un joueur décide d'arrêter le jeu (Sauvegarde)
+	Sans ça, il entrera en phase tour à répétition (en alternant entre les joueurs selon l'ordre décrit dans la phase initialisation)
+		
+		_PHASE CHOIX JOUEUR
+		Le serveur lit le nom du joueur dont c'est le tour est l'enregistre comme étant le joueur cible.
+
+		_PHASE TOUR
+
+			_PHASE OUVRIR UNE PORTE
+			Le serveur envoi au joueur dont c'est le tour un signal (DEBUT_TOUR) pour lui signaler l'entré dans la phase tour et envoie le numero du joueur dont c'est le tour aux autres (
+			Ensuite, il pioche (dépile) le tas de carte DJ et analyse la carte
+				Si c'est une carte de type Monstre ou Malédiction, envoie a tout le monde la carte pour affichage. Une fois les phases terminées, enpile la carte sur la défausse DJ.
+				Sinon envoie la carte uniquement au joueur concerné qui l'ajoute a sa main, les joueurs mettent a jour leur plateau (partiel)
+				
+				• Monstre => _PHASE COMBAT
+				Le monstre est affiché sur tous les écrans
+				1 : Calcul des deux forces, envoie les forces opposées à tous les joueurs (monstre + joueur). En comparant les forces le serveur sait qui va gagner, il envoi aussi le gagnant potentiel
+				2 : Envoi au joueur en combat les différentes options qui s'offrent à lui
+	
+					- Utiliser un OBJET de sa main (affiche en claire uniquement les cartes jouables à ce moment, ActionDonjon.BonusCombat, items inutilisables => equiper, vendre etc..)
+						si objet utilisé, retour en phase 1
+	
+					   | Si force joueur > force monstre, COMBATTRE
+					- <|
+					   | Si force joueur < force monstre, DEGUERPIRE
+	
+					- Demander de l'AIDE à un joueur. Le Joueur n demande de l'aide à un joueur m en lui proposent x trésor sur y (x<=y et n!=m). Le serveur reçoit le message (AIDE j=m t=x) et envoie un message
+						au joueur m pour lui proposer d'aider joueur n contre x trésor (tirés au hasard lors de la fin victorieuse du combat). Si le joueur m accepte => retour en phase 1, sinon retour en phase 2.
+					
+					COMBATTRE => lance une phase chronometre (CONTRE_COMBAT) chez les adversaires, leur permettant d'utiliser une carte pour contrer la victoire du joueur combattant. Si boostNiveau retour phase 1.
+						sinon effet spécial calculé par serveur et envoi du résultat aux joueurs.
+					DEGUERPIRE => lance une phase de lancé de dé chez le joueur combattant, et retourne un résultat (FUITE_SUCCES, FUITE_ECHEC) au serveur. Vient alors une phase chronometre (CONTRE_FUITE)
+						qui permet aux adversaires de poser une carte empéchant la fuite.
+	
+				• Malédiction => _PHASE MALEDICTION
+				La malédiction est affiché sur tous les écrans.
+				Le serveur applique l'effets et met a jour le plateau partiel de tous les joueurs.
+
+			_PHASE CHERCHER LA BAGARRE
+			Le joueur entre dans cette phase uniquement s'il n'est pas rentré en phase combat.
+			Le serveur regarde dans l'historique si la phase tour actuelle contient une phase combat.
+			Si oui, il envoi un message au joueur dont c'est le tour pour lui annoncer qu'il peut choisir un monstre a affronter dans sa main. Il attend ensuite une réponse du type
+				(COMBAT, monstre = id)
+				Le serveur vérifie que le monstre est bien dans la main actuelle du joueur et fait entrer le joueur dans une _PHASE COMBAT
+			Si non, le serveur passe a la phase suivante
+
+			_PHASE PILLER LA PIECE
+			Le joueur entre dans cette phase uniquement s'il n'est pas rentré en phase combat.
+			Le serveur regarde dans l'historique si la phase tour actuelle contient une phase combat.
+			Si non, il envoi un message au joueur pour lui annoncer qu'il entre en face piller la piece et lui envoi egalement la carte du dessus du tas DJ (PILLER LA PIECE, carte = id).
+				Le serveur met a jour le plateau partiel de tous les joueurs.
+			Si oui, passe a la phase suivante.
+
+			_PHASE CHARITE, SIOUPLAIT
+			Le serveur compte combien de cartes possède le joueur en combat et si nb_carte > 5, le joueur entre dans cette phase.
+			Il envoi alors au joueur dont c'est le tour un message (CHARITE). Ce joueur va donc envoyer, carte par carte, les cartes qu'il va utiliser (malediction, objets etc...) (UTILISER, carte=id, joueur=id)
+				et celles qu'il va donner (DONNER, carte=id, joueur=num) en précisent a chaque fois le joueur qui reçoit ces cartes. Le serveur va a chaque fois vérifier si l'action est possible
+				ex : UTILISER, carte = botte de séduction, joueur = un autre joueur que soit. Il est impossible d'utiliser un objet sur quelqu'un d'autre.
+			Une fois le total de cartes du joueur x <= 5, il peut demander à sortir de la phase charite (QUITTER_CHARITE).
+
+			_PHASE CHANGEMENT DE JOUEUR
+			Le tour est fini, le serveur démarre le tour du joueur suivant en quittant la phase tour actuelle. Broadcast (FIN_TOUR)
