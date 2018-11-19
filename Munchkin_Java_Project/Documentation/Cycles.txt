@@ -1,12 +1,12 @@
-Serveur :
+(•) SERVEUR ::
 
 lancement du programme Serveur
 	
 	_PHASE SALON
 	Ouverture du salon de connexion = Mise en mode attente et test les connexions entrentes
 	Le serveur dispose d'un terminal et de certaines commandes permettant d'obtenir son adresse IP, les ports utilisés ...
-	Chaque client fera une demande de connexion, le serveur les acceptera (entre 3 à 8 connexions)
-	Lorsque tous les clients qui sont connectés ont envoyé le signal (READY) => Le serveur sors de la boucle Phase Salon
+	Chaque client fera une demande de connexion (CONNECT_MUNCHKIN), le serveur les acceptera (entre 3 et 6 connexions)
+	Lorsque tous les clients qui sont connectés ont envoyé le signal (PRET) => Le serveur sors de la boucle Phase Salon
 	
 	_PHASE INITIALISATION
 	Le serveur crée toutes les données utiles au jeu = joueurs, plateau, piles, defausses, fichier historique /!\ A DEVELOPPER /!\
@@ -27,14 +27,15 @@ lancement du programme Serveur
 		_PHASE TOUR
 
 			_PHASE OUVRIR UNE PORTE
-			Le serveur envoi au joueur dont c'est le tour un signal (DEBUT_TOUR) pour lui signaler l'entré dans la phase tour et envoie le numero du joueur dont c'est le tour aux autres (
+			Le serveur envoi aux clients un message (DEBUT_TOUR, j="...") permettant aux joueurs de savoir quel est le joueur dont c'est le tour.
 			Ensuite, il pioche (dépile) le tas de carte DJ et analyse la carte
 				Si c'est une carte de type Monstre ou Malédiction, envoie a tout le monde la carte pour affichage. Une fois les phases terminées, enpile la carte sur la défausse DJ.
 				Sinon envoie la carte uniquement au joueur concerné qui l'ajoute a sa main, les joueurs mettent a jour leur plateau (partiel)
 				
 				• Monstre => _PHASE COMBAT
 				Le monstre est affiché sur tous les écrans
-				1 : Calcul des deux forces, envoie les forces opposées à tous les joueurs (monstre + joueur). En comparant les forces le serveur sait qui va gagner, il envoi aussi le gagnant potentiel
+				1 : Calcul des deux forces, envoie les forces opposées à tous les joueurs (monstre + joueur). En comparant les forces le serveur sait qui va gagner, il envoi aussi le gagnant potentiel.
+					(FORCE_OPPOSE, joueur=12, monstre = 11, vainqueur = joueur)
 				2 : Envoi au joueur en combat les différentes options qui s'offrent à lui
 	
 					- Utiliser un OBJET de sa main (affiche en claire uniquement les cartes jouables à ce moment, ActionDonjon.BonusCombat, items inutilisables => equiper, vendre etc..)
@@ -54,7 +55,9 @@ lancement du programme Serveur
 	
 				• Malédiction => _PHASE MALEDICTION
 				La malédiction est affiché sur tous les écrans.
-				Le serveur applique l'effets et met a jour le plateau partiel de tous les joueurs.
+				Le serveur détermine si le joueur a les moyens de contrer la malediction,
+					si oui il envoi la liste des actions possibles au client, celui si lui renverra son choix (ne rien faire = appliquer malediction, autre = contrer en utilisant une carte ou un effet)
+					si non il applique l'effets et met a jour le plateau partiel de tous les joueurs.
 
 			_PHASE CHERCHER LA BAGARRE
 			Le joueur entre dans cette phase uniquement s'il n'est pas rentré en phase combat.
@@ -80,3 +83,65 @@ lancement du programme Serveur
 
 			_PHASE CHANGEMENT DE JOUEUR
 			Le tour est fini, le serveur démarre le tour du joueur suivant en quittant la phase tour actuelle. Broadcast (FIN_TOUR)
+
+
+
+
+(•) CLIENT ::
+
+Lancement du programme Client
+
+	_PHASE CONNEXION
+	Le client devra entrer l'adresse IP du serveur pour permettre une connexion à la partie souhaité (CONNECT_MUNCHKIN).
+	Un fois accepté (CONNECT_ACCEPT) et son pseudo envoyé il rejoint le salon et entre en phase salon.
+
+	_PHASE SALON
+	Le client reçoit des informations du serveur pour mettre à jour son interface : liste des joueurs présent, leur pseudo et leur état (JOUEUR, liste : joueur="xX_fan_de_poney_Xx", pret=0 ; ...).
+	Si le client est prêt il envoi un message au serveur pour le lui dire (PRET).
+	Lors que tous le monde est prêt le joueur reçoit un message lui annonçant le début de la partie (INIT_PARTIE)
+
+	_PHASE INITIALISATION
+	Le client attend que le serveur lui envoie les données dont il a besoin pour mettre a jour son plateau et son interface graphique.
+	Lorsque le client reçoit (DEBUT) il demande au joueur de valider le lancemet de la partie en envoyant un signal (PRET).
+
+	_PHASE DETECTION/CHOIX TOUR
+	Ici le client attendra que le serveur lui envoi un message signalant le début du tour d'un joueur. Lorsqu'il reçoit ce message, si son nom y est écrit il entre dans la phase tour, sinon il est entre dans la phase
+	tour adverse.
+
+		_PHASE TOUR
+
+			_PHASE OUVRIR UNE PORTE
+			Le serveur va lui envoyer un message dans lequel sera écrit l'ID de la carte pioché.
+			Si c'est un monstre il entre en phase combat,
+			Si c'est une malediction, en phase malediction
+			Et si c'est autre chose le joueur ajoute la carte à sa main.
+				
+				_PHASE COMBAT
+				1 : Le monstre est affiché sur l'écran du client (mise a jour interface).
+				Le client attend de connaitre la force du monstre, sa force et l'issue du combat. Ces informations seront reçu du serveur dans un message (FORCE_OPPOSE, joueur=12, monstre = 11, vainqueur = joueur)
+				2 : Le serveur lui envoi une liste d'options qui s'offrent à lui.
+					
+					- Utiliser un OBJET de sa main (affiche en claire uniquement les cartes jouables à ce moment, ActionDonjon.BonusCombat, items inutilisables => equiper, vendre etc..)
+						si objet utilisé, retour en phase 1
+	
+					   | Si force joueur > force monstre, COMBATTRE
+					- <|			et/ou
+					   | Si force joueur < force monstre, DEGUERPIRE
+	
+					- Demander de l'AIDE à un joueur. Le Joueur n demande de l'aide à un joueur m en lui proposent x trésor sur y (x<=y et n!=m). (AIDE j=m t=x)
+						Il attend alors la réponse du client concerné qui lui sera transmise par le serveur.
+						Si oui = Retour en phase 1
+						Si non = Retour en phase 2
+	
+				3 : Les joueurs adverses pouvant réagir a la situation, le client va devoir attendre une validation du serveur pour remporter/deguerpire etc... le combat. Si les joueurs adverses renversent le combat, le client recevra alors 
+					un message lui donnant la phase dans laquelle il sera propulsé.
+					Ex : si boost monstre -> phase 1. Si Vole de monstre, phase attente (standby). Si flaque de colle -> phase deguerpire etc...
+				4 : Si le combat est remporté le joueur attend de connaitre la mise a jour du plateau, les cartes remportées etc... avant d'entrer dans la phase suivante.
+				4 bis : Si fuite réussi le joueur attend d'entrer dans la phase suivante.
+				
+				_PHASE MALEDICTION
+				Le joueur a reçu une carte malediction, s'il possède un objet ou un moyen de contrer la malediction, le serveur lui envoi les différentes possibilités.
+				Il choisit d'agir ou non.
+	
+			_PHASE CHERCHER LA BAGARRE
+			// TODO : A SUIVRE
